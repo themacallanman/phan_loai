@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Machine — Nhận diện ảnh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* ─── Reset & Variables ─── */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #0f0f1a;
+            --card: #1a1a2e;
+            --card-border: #2a2a4a;
+            --accent: #6c63ff;
+            --accent-glow: rgba(108, 99, 255, .35);
+            --green: #00e676;
+            --text: #e8e8f0;
+            --text-dim: #8888aa;
+            --bar-bg: #2a2a4a;
+            --radius: 18px;
+            --transition: .35s cubic-bezier(.4,0,.2,1);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+
+        /* ─── Animated background blobs ─── */
+        body::before, body::after {
+            content: '';
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: .4;
+            z-index: 0;
+            pointer-events: none;
+            animation: blobFloat 12s ease-in-out infinite alternate;
+        }
+        body::before {
+            width: 450px; height: 450px;
+            background: var(--accent);
+            top: -100px; left: -120px;
+        }
+        body::after {
+            width: 350px; height: 350px;
+            background: #e040fb;
+            bottom: -80px; right: -100px;
+            animation-delay: -6s;
+        }
+        @keyframes blobFloat {
+            0%   { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(60px, 40px) scale(1.15); }
+        }
+
+        /* ─── Header ─── */
+        .header {
+            position: relative; z-index: 1;
+            text-align: center;
+            margin-bottom: 2rem;
+            animation: fadeSlideDown .7s ease-out both;
+        }
+        .header h1 {
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+            font-weight: 800;
+            background: linear-gradient(135deg, #6c63ff, #e040fb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header p {
+            color: var(--text-dim);
+            margin-top: .4rem;
+            font-size: .95rem;
+        }
+
+        /* ─── Card ─── */
+        .card {
+            position: relative; z-index: 1;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 520px;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,.45);
+            animation: fadeSlideUp .7s .15s ease-out both;
+        }
+
+        /* ─── Drop zone ─── */
+        .dropzone {
+            position: relative;
+            border: 2px dashed var(--card-border);
+            border-radius: 14px;
+            padding: 2.5rem 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color var(--transition), background var(--transition), transform var(--transition);
+            overflow: hidden;
+        }
+        .dropzone:hover, .dropzone.drag-over {
+            border-color: var(--accent);
+            background: rgba(108,99,255,.06);
+            transform: scale(1.01);
+        }
+        .dropzone.drag-over {
+            box-shadow: inset 0 0 30px var(--accent-glow);
+        }
+
+        .dropzone-icon {
+            font-size: 2.8rem;
+            margin-bottom: .6rem;
+            display: block;
+            animation: bounce 2s ease-in-out infinite;
+        }
+        @keyframes bounce {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-8px); }
+        }
+
+        .dropzone-text { font-size: .95rem; color: var(--text-dim); line-height: 1.6; }
+        .dropzone-text strong { color: var(--accent); }
+
+        .dropzone input[type=file] {
+            position: absolute; inset: 0; opacity: 0; cursor: pointer;
+        }
+
+        /* ─── Preview image ─── */
+        .preview-wrapper {
+            position: relative;
+            margin-top: 1.4rem;
+            border-radius: 14px;
+            overflow: hidden;
+            display: none;
+            animation: fadeScale .4s ease-out both;
+        }
+        .preview-wrapper.visible { display: block; }
+        .preview-wrapper img {
+            width: 100%;
+            display: block;
+            border-radius: 14px;
+            object-fit: contain;
+            max-height: 320px;
+            background: #12121f;
+        }
+
+        /* ─── Buttons ─── */
+        .btn-row {
+            display: flex; gap: .8rem;
+            margin-top: 1.2rem;
+        }
+        .btn {
+            flex: 1;
+            padding: .85rem 1rem;
+            border: none;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: .95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform var(--transition), box-shadow var(--transition), opacity var(--transition);
+        }
+        .btn:active { transform: scale(.97); }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6c63ff, #8b5cf6);
+            color: #fff;
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+        .btn-primary:hover:not(:disabled) {
+            box-shadow: 0 6px 30px var(--accent-glow);
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: var(--bar-bg);
+            color: var(--text-dim);
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background: #353560;
+            color: var(--text);
+        }
+
+        /* ─── Loader spinner ─── */
+        .spinner {
+            display: none;
+            margin: 1.4rem auto 0;
+            width: 40px; height: 40px;
+            border: 3.5px solid var(--card-border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+        .spinner.visible { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Status text ─── */
+        .status {
+            text-align: center;
+            font-size: .85rem;
+            color: var(--text-dim);
+            margin-top: .6rem;
+            min-height: 1.3rem;
+            transition: opacity .3s;
+        }
+
+        /* ─── Results ─── */
+        .results {
+            margin-top: 1.6rem;
+            display: none;
+        }
+        .results.visible { display: block; }
+
+        .results-title {
+            font-size: .8rem;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--text-dim);
+            margin-bottom: .9rem;
+        }
+
+        .result-item {
+            margin-bottom: .85rem;
+            animation: fadeSlideUp .45s ease-out both;
+        }
+        .result-item:nth-child(2) { animation-delay: .06s; }
+        .result-item:nth-child(3) { animation-delay: .12s; }
+        .result-item:nth-child(4) { animation-delay: .18s; }
+        .result-item:nth-child(5) { animation-delay: .24s; }
+        .result-item:nth-child(6) { animation-delay: .30s; }
+
+        .result-label-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: .35rem;
+        }
+        .result-name {
+            font-weight: 600;
+            font-size: .92rem;
+            transition: color .3s;
+        }
+        .result-pct {
+            font-weight: 700;
+            font-size: .92rem;
+            font-variant-numeric: tabular-nums;
+            transition: color .3s;
+        }
+
+        .bar-track {
+            width: 100%;
+            height: 10px;
+            background: var(--bar-bg);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            width: 0;
+            background: linear-gradient(90deg, #6c63ff, #8b5cf6);
+            transition: width .8s cubic-bezier(.25,.8,.25,1);
+        }
+
+        /* ─── Top prediction highlight ─── */
+        .result-item.top .result-name { color: var(--green); }
+        .result-item.top .result-pct  { color: var(--green); }
+        .result-item.top .bar-fill {
+            background: linear-gradient(90deg, #00e676, #00c853);
+            box-shadow: 0 0 12px rgba(0,230,118,.4);
+        }
+        .result-item.top .badge {
+            display: inline-block;
+        }
+
+        .badge {
+            display: none;
+            font-size: .65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            background: rgba(0,230,118,.15);
+            color: var(--green);
+            padding: .15rem .5rem;
+            border-radius: 6px;
+            margin-left: .5rem;
+            animation: pulseBadge 1.8s ease-in-out infinite;
+        }
+        @keyframes pulseBadge {
+            0%,100% { opacity: 1; }
+            50%     { opacity: .6; }
+        }
+
+        /* ─── Animations ─── */
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeSlideDown {
+            from { opacity: 0; transform: translateY(-18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeScale {
+            from { opacity: 0; transform: scale(.95); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        /* ─── Footer ─── */
+        .footer {
+            position: relative; z-index: 1;
+            margin-top: 2rem;
+            font-size: .78rem;
+            color: var(--text-dim);
+            opacity: .6;
+            animation: fadeSlideUp .7s .4s ease-out both;
+        }
+
+        /* ─── Responsive tweaks ─── */
+        @media (max-width: 540px) {
+            .card { padding: 1.3rem; }
+            .dropzone { padding: 1.8rem .8rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🤖 Nhận diện ảnh AI</h1>
+        <p>Tải ảnh lên để mô hình Teachable Machine phân loại</p>
+    </div>
+
+    <div class="card">
+        <!-- Drop zone -->
+        <div class="dropzone" id="dropzone">
+            <span class="dropzone-icon">📁</span>
+            <div class="dropzone-text">
+                Kéo &amp; thả ảnh vào đây<br>
+                hoặc <strong>bấm để chọn ảnh</strong>
+            </div>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <!-- Preview -->
+        <div class="preview-wrapper" id="previewWrapper">
+            <img id="previewImg" alt="Ảnh xem trước">
+        </div>
+
+        <!-- Buttons -->
+        <div class="btn-row">
+            <button class="btn btn-primary" id="btnPredict" disabled>✨ Nhận diện</button>
+            <button class="btn btn-secondary" id="btnReset" disabled>🗑 Xóa ảnh</button>
+        </div>
+
+        <!-- Spinner & status -->
+        <div class="spinner" id="spinner"></div>
+        <div class="status" id="status"></div>
+
+        <!-- Results -->
+        <div class="results" id="results">
+            <div class="results-title">Kết quả dự đoán</div>
+            <div id="resultsList"></div>
+        </div>
+    </div>
+
+    <div class="footer">Powered by TensorFlow.js &amp; Teachable Machine</div>
+
+    <!-- TensorFlow & Teachable Machine libs -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <script>
+        // ═══════════════════════════════════════════
+        //  Model URL — giữ nguyên từ Teachable Machine
+        // ═══════════════════════════════════════════
+        const URL = "https://teachablemachine.withgoogle.com/models/ZE5nlTftw/";
+
+        let model = null;
+
+        // DOM refs
+        const dropzone       = document.getElementById('dropzone');
+        const fileInput       = document.getElementById('fileInput');
+        const previewWrapper  = document.getElementById('previewWrapper');
+        const previewImg      = document.getElementById('previewImg');
+        const btnPredict      = document.getElementById('btnPredict');
+        const btnReset        = document.getElementById('btnReset');
+        const spinner         = document.getElementById('spinner');
+        const statusEl        = document.getElementById('status');
+        const resultsDiv      = document.getElementById('results');
+        const resultsList     = document.getElementById('resultsList');
+
+        // ── Load model on page load ──
+        (async function loadModel() {
+            setStatus('Đang tải mô hình AI…');
+            spinner.classList.add('visible');
+            try {
+                const modelURL    = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+                model = await tmImage.load(modelURL, metadataURL);
+                spinner.classList.remove('visible');
+                setStatus('Mô hình đã sẵn sàng — hãy tải ảnh lên!');
+            } catch (err) {
+                spinner.classList.remove('visible');
+                setStatus('❌ Không thể tải mô hình. Kiểm tra kết nối mạng.');
+                console.error(err);
+            }
+        })();
+
+        // ── File handling ──
+        fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+        // Drag & drop
+        dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+        dropzone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropzone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) handleFile(file);
+        });
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                previewImg.src = e.target.result;
+                previewWrapper.classList.add('visible');
+                // Re-trigger animation
+                previewWrapper.style.animation = 'none';
+                void previewWrapper.offsetHeight;
+                previewWrapper.style.animation = '';
+
+                btnPredict.disabled = false;
+                btnReset.disabled   = false;
+                resultsDiv.classList.remove('visible');
+                setStatus('');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // ── Predict ──
+        btnPredict.addEventListener('click', async () => {
+            if (!model) { setStatus('⏳ Mô hình chưa tải xong…'); return; }
+
+            btnPredict.disabled = true;
+            spinner.classList.add('visible');
+            setStatus('Đang phân tích ảnh…');
+
+            // Small delay so spinner can render
+            await new Promise(r => setTimeout(r, 80));
+
+            try {
+                const prediction = await model.predict(previewImg);
+
+                // Find top class
+                let topIdx = 0;
+                prediction.forEach((p, i) => {
+                    if (p.probability > prediction[topIdx].probability) topIdx = i;
+                });
+
+                // Build result HTML
+                resultsList.innerHTML = '';
+                prediction.forEach((p, i) => {
+                    const pct = (p.probability * 100).toFixed(1);
+                    const isTop = i === topIdx;
+                    const item = document.createElement('div');
+                    item.className = 'result-item' + (isTop ? ' top' : '');
+                    item.innerHTML = `
+                        <div class="result-label-row">
+                            <span class="result-name">${escHTML(p.className)}${isTop ? '<span class="badge">cao nhất</span>' : ''}</span>
+                            <span class="result-pct">${pct}%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill" style="width:0"></div>
+                        </div>`;
+                    resultsList.appendChild(item);
+
+                    // Animate bar after append
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            item.querySelector('.bar-fill').style.width = pct + '%';
+                        });
+                    });
+                });
+
+                resultsDiv.classList.add('visible');
+                setStatus('');
+            } catch (err) {
+                setStatus('❌ Lỗi khi nhận diện ảnh.');
+                console.error(err);
+            }
+
+            spinner.classList.remove('visible');
+            btnPredict.disabled = false;
+        });
+
+        // ── Reset ──
+        btnReset.addEventListener('click', () => {
+            previewImg.src = '';
+            previewWrapper.classList.remove('visible');
+            resultsDiv.classList.remove('visible');
+            resultsList.innerHTML = '';
+            fileInput.value = '';
+            btnPredict.disabled = true;
+            btnReset.disabled   = true;
+            setStatus(model ? 'Mô hình đã sẵn sàng — hãy tải ảnh lên!' : '');
+        });
+
+        // ── Helpers ──
+        function setStatus(msg) { statusEl.textContent = msg; }
+        function escHTML(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    </script>
+</body>
+</html>
